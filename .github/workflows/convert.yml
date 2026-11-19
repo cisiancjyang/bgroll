@@ -1,0 +1,76 @@
+name: Convert video to animated WebP
+
+# 觸發條件：video/ 資料夾有新增或修改影片，或手動按 Run workflow
+on:
+  push:
+    paths:
+      - 'video/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WIDTH: 1200        # 輸出寬度（px）
+  MAX_SECONDS: 6     # 最長秒數（超過會截斷）
+  MAX_KB: 3000       # 目標檔案大小上限（KB），超過會自動降畫質重轉
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+
+      - name: Convert videos to WebP
+        run: |
+          set -e
+          git config core.quotepath false
+          mkdir -p banners video
+
+          find video -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.m4v' \) -print0 |
+          while IFS= read -r -d '' src; do
+            name="$(basename "${src%.*}")"
+            out="banners/${name}.webp"
+
+            # 已轉過且影片沒有比較新就略過
+            if [ -f "$out" ] && [ "$out" -nt "$src" ]; then
+              echo "skip: $out"
+              continue
+            fi
+
+            # 依序嘗試：fps/畫質逐步降低，直到小於 MAX_KB
+            ok=0
+            for combo in "12 60" "10 50" "8 40" "6 30"; do
+              fps="${combo% *}"; q="${combo#* }"
+              ffmpeg -y -loglevel error -i "$src" -t "$MAX_SECONDS" -an \
+                -vf "fps=${fps},scale=${WIDTH}:-2:flags=lanczos" \
+                -c:v libwebp -loop 0 -q:v "$q" -compression_level 6 -preset picture \
+                "$out"
+              kb=$(( $(stat -c%s "$out") / 1024 ))
+              echo "$name: fps=$fps q=$q -> ${kb}KB"
+              if [ "$kb" -le "$MAX_KB" ]; then ok=1; break; fi
+            done
+            [ "$ok" -eq 1 ] || echo "::warning::$out 仍大於 ${MAX_KB}KB，建議縮短影片"
+          done
+
+      - name: Build banners/list.json
+        run: |
+          cd banners
+          ls -1 *.webp 2>/dev/null | python3 -c "import sys,json; print(json.dumps([l.strip() for l in sys.stdin if l.strip()], ensure_ascii=False, indent=2))" > list.json || echo "[]" > list.json
+
+      - name: Commit results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add banners
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "auto: convert video to webp"
+            git push
+          fi
