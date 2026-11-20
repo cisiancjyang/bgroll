@@ -11,7 +11,8 @@ permissions:
   contents: write
 
 env:
-  WIDTH: 1200        # 輸出寬度（px）
+  WIDTH: 1500        # 輸出寬度（px）
+  HEIGHT: 420        # 輸出高度（px）；影片會自動裁切置中填滿 WIDTH×HEIGHT
   MAX_SECONDS: 6     # 最長秒數（超過會截斷）
   MAX_KB: 3000       # 目標檔案大小上限（KB），超過會自動降畫質重轉
 
@@ -53,7 +54,7 @@ jobs:
             for combo in "12 60" "10 50" "8 40" "6 30"; do
               fps="${combo% *}"; q="${combo#* }"
               ffmpeg -nostdin -y -loglevel error -i "$src" -t "$MAX_SECONDS" -an \
-                -vf "fps=${fps},scale=${WIDTH}:-2:flags=lanczos" \
+                -vf "fps=${fps},scale=${WIDTH}:${HEIGHT}:force_original_aspect_ratio=increase:flags=lanczos,crop=${WIDTH}:${HEIGHT}" \
                 -c:v libwebp -loop 0 -q:v "$q" -compression_level 6 -preset picture \
                 "$out"
               kb=$(( $(stat -c%s "$out") / 1024 ))
