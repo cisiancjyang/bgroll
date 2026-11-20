@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Install ffmpeg
         run: |
@@ -31,16 +33,19 @@ jobs:
           set -e
           git config core.quotepath false
           mkdir -p banners video
+          changed="$(git diff --name-only HEAD^ HEAD -- video 2>/dev/null || true)"
 
           find video -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.m4v' \) -print0 |
           while IFS= read -r -d '' src; do
             name="$(basename "${src%.*}")"
             out="banners/${name}.webp"
 
-            # 已轉過且影片沒有比較新就略過
-            if [ -f "$out" ] && [ "$out" -nt "$src" ]; then
-              echo "skip: $out"
-              continue
+            # 已有成品（公開在 banners/ 或隱藏在 hidden/）且這次推送沒改到這支影片 → 略過
+            if [ -f "$out" ] || [ -f "hidden/${name}.webp" ]; then
+              if ! printf '%s\n' "$changed" | grep -Fxq "$src"; then
+                echo "skip: $name"
+                continue
+              fi
             fi
 
             # 依序嘗試：fps/畫質逐步降低，直到小於 MAX_KB
@@ -56,6 +61,7 @@ jobs:
               if [ "$kb" -le "$MAX_KB" ]; then ok=1; break; fi
             done
             [ "$ok" -eq 1 ] || echo "::warning::$out 仍大於 ${MAX_KB}KB，建議縮短影片"
+            if [ -f "$out" ]; then rm -f "hidden/${name}.webp"; fi
           done
 
       - name: Build banners/list.json
@@ -67,7 +73,8 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add banners
+          git add -A banners
+          if [ -d hidden ]; then git add -A hidden; fi
           if git diff --cached --quiet; then
             echo "no changes"
           else
