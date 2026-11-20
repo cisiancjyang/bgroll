@@ -47,7 +47,7 @@ jobs:
             ok=0
             for combo in "12 60" "10 50" "8 40" "6 30"; do
               fps="${combo% *}"; q="${combo#* }"
-              ffmpeg -y -loglevel error -i "$src" -t "$MAX_SECONDS" -an \
+              ffmpeg -nostdin -y -loglevel error -i "$src" -t "$MAX_SECONDS" -an \
                 -vf "fps=${fps},scale=${WIDTH}:-2:flags=lanczos" \
                 -c:v libwebp -loop 0 -q:v "$q" -compression_level 6 -preset picture \
                 "$out"
